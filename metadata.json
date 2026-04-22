@@ -1,0 +1,6 @@
+{
+  "name": "Batch Watermark Remover",
+  "description": "A tool to batch process multiple images to hide or remove watermarks by drawing a bounding box and applying blur, pixelation, or solid color overlays.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
