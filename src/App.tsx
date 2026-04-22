@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { DropzoneArea } from './components/DropzoneArea';
 import { ImageEditor, BoundingBox } from './components/ImageEditor';
-import { processImage } from './utils/imageProcessing';
-import { Download, Trash2, CheckCircle2, Loader2, Image as ImageIcon, AlertCircle } from 'lucide-react';
+import { processImage, type RemovalMethod } from './utils/imageProcessing';
+import { Download, Trash2, Loader2, AlertCircle } from 'lucide-react';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 
@@ -12,7 +12,7 @@ export default function App() {
   
   // Editor state
   const [boundingBox, setBoundingBox] = useState<BoundingBox | null>(null);
-  const [method, setMethod] = useState<'patch' | 'blur' | 'pixelate' | 'solid'>('patch');
+  const [method, setMethod] = useState<RemovalMethod>('patch');
   const [intensity, setIntensity] = useState(0.5);
   const [solidColor, setSolidColor] = useState('#FFFFFF');
 

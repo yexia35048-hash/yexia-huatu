@@ -1,7 +1,247 @@
+export type RemovalMethod = 'patch' | 'inpaint' | 'blur' | 'pixelate' | 'solid';
+
+interface SelectionBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface ProcessOptions {
+  method: RemovalMethod;
+  intensity: number;
+  color?: string;
+}
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const getPixelOffset = (x: number, y: number, width: number) => (y * width + x) * 4;
+
+const fillUnknownPixel = (
+  data: Float32Array,
+  knownMask: Uint8Array,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+  maxRadius: number
+) => {
+  for (let radius = 1; radius <= maxRadius; radius++) {
+    let weightSum = 0;
+    let red = 0;
+    let green = 0;
+    let blue = 0;
+
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
+
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+
+        const maskIndex = ny * width + nx;
+        if (!knownMask[maskIndex]) continue;
+
+        const distanceSq = dx * dx + dy * dy;
+        const weight = 1 / Math.max(1, distanceSq);
+        const pixelOffset = getPixelOffset(nx, ny, width);
+        weightSum += weight;
+        red += data[pixelOffset] * weight;
+        green += data[pixelOffset + 1] * weight;
+        blue += data[pixelOffset + 2] * weight;
+      }
+    }
+
+    if (weightSum > 0) {
+      const pixelOffset = getPixelOffset(x, y, width);
+      data[pixelOffset] = red / weightSum;
+      data[pixelOffset + 1] = green / weightSum;
+      data[pixelOffset + 2] = blue / weightSum;
+      data[pixelOffset + 3] = 255;
+      knownMask[y * width + x] = 1;
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const smoothMaskRegion = (
+  data: Float32Array,
+  selectionMask: Uint8Array,
+  width: number,
+  height: number,
+  passes: number
+) => {
+  for (let pass = 0; pass < passes; pass++) {
+    const snapshot = new Float32Array(data);
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const maskIndex = y * width + x;
+        if (!selectionMask[maskIndex]) continue;
+
+        const pixelOffset = getPixelOffset(x, y, width);
+        let weightSum = 4;
+        let red = snapshot[pixelOffset] * 4;
+        let green = snapshot[pixelOffset + 1] * 4;
+        let blue = snapshot[pixelOffset + 2] * 4;
+
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+
+            const neighborMaskIndex = ny * width + nx;
+            const neighborOffset = getPixelOffset(nx, ny, width);
+            const weight = selectionMask[neighborMaskIndex] ? 1 : 1.5;
+
+            weightSum += weight;
+            red += snapshot[neighborOffset] * weight;
+            green += snapshot[neighborOffset + 1] * weight;
+            blue += snapshot[neighborOffset + 2] * weight;
+          }
+        }
+
+        data[pixelOffset] = red / weightSum;
+        data[pixelOffset + 1] = green / weightSum;
+        data[pixelOffset + 2] = blue / weightSum;
+        data[pixelOffset + 3] = 255;
+      }
+    }
+  }
+};
+
+const inpaintSelection = (ctx: CanvasRenderingContext2D, selection: SelectionBox) => {
+  const padding = Math.max(16, Math.round(Math.max(selection.width, selection.height) * 0.35));
+  const regionX = Math.max(0, selection.x - padding);
+  const regionY = Math.max(0, selection.y - padding);
+  const regionRight = Math.min(ctx.canvas.width, selection.x + selection.width + padding);
+  const regionBottom = Math.min(ctx.canvas.height, selection.y + selection.height + padding);
+  const regionWidth = regionRight - regionX;
+  const regionHeight = regionBottom - regionY;
+
+  if (regionWidth <= 0 || regionHeight <= 0) return;
+
+  const localX = selection.x - regionX;
+  const localY = selection.y - regionY;
+  const localRight = localX + selection.width;
+  const localBottom = localY + selection.height;
+
+  const region = ctx.getImageData(regionX, regionY, regionWidth, regionHeight);
+  const data = new Float32Array(region.data.length);
+  const knownMask = new Uint8Array(regionWidth * regionHeight).fill(1);
+  const selectionMask = new Uint8Array(regionWidth * regionHeight);
+  data.set(region.data);
+
+  for (let y = localY; y < localBottom; y++) {
+    for (let x = localX; x < localRight; x++) {
+      const maskIndex = y * regionWidth + x;
+      knownMask[maskIndex] = 0;
+      selectionMask[maskIndex] = 1;
+    }
+  }
+
+  let remaining = selection.width * selection.height;
+  const samplingRadius = 3;
+  const maxIterations = Math.max(selection.width, selection.height) + padding;
+
+  for (let iteration = 0; iteration < maxIterations && remaining > 0; iteration++) {
+    const updates: Array<{x: number; y: number; red: number; green: number; blue: number}> = [];
+
+    for (let y = localY; y < localBottom; y++) {
+      for (let x = localX; x < localRight; x++) {
+        const maskIndex = y * regionWidth + x;
+        if (knownMask[maskIndex]) continue;
+
+        let neighborCount = 0;
+        let weightSum = 0;
+        let red = 0;
+        let green = 0;
+        let blue = 0;
+
+        for (let dy = -samplingRadius; dy <= samplingRadius; dy++) {
+          for (let dx = -samplingRadius; dx <= samplingRadius; dx++) {
+            if (dx === 0 && dy === 0) continue;
+
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || nx >= regionWidth || ny < 0 || ny >= regionHeight) continue;
+
+            const distanceSq = dx * dx + dy * dy;
+            if (distanceSq > samplingRadius * samplingRadius) continue;
+
+            const neighborMaskIndex = ny * regionWidth + nx;
+            if (!knownMask[neighborMaskIndex]) continue;
+
+            neighborCount++;
+            const weight = 1 / Math.max(1, distanceSq);
+            const neighborOffset = getPixelOffset(nx, ny, regionWidth);
+            weightSum += weight;
+            red += data[neighborOffset] * weight;
+            green += data[neighborOffset + 1] * weight;
+            blue += data[neighborOffset + 2] * weight;
+          }
+        }
+
+        if (neighborCount >= 3 && weightSum > 0) {
+          updates.push({
+            x,
+            y,
+            red: red / weightSum,
+            green: green / weightSum,
+            blue: blue / weightSum,
+          });
+        }
+      }
+    }
+
+    if (updates.length === 0) break;
+
+    for (const update of updates) {
+      const pixelOffset = getPixelOffset(update.x, update.y, regionWidth);
+      data[pixelOffset] = update.red;
+      data[pixelOffset + 1] = update.green;
+      data[pixelOffset + 2] = update.blue;
+      data[pixelOffset + 3] = 255;
+      knownMask[update.y * regionWidth + update.x] = 1;
+    }
+
+    remaining -= updates.length;
+  }
+
+  if (remaining > 0) {
+    const fallbackRadius = Math.max(8, samplingRadius * 4);
+
+    for (let y = localY; y < localBottom; y++) {
+      for (let x = localX; x < localRight; x++) {
+        const maskIndex = y * regionWidth + x;
+        if (knownMask[maskIndex]) continue;
+        if (fillUnknownPixel(data, knownMask, regionWidth, regionHeight, x, y, fallbackRadius)) {
+          remaining--;
+        }
+      }
+    }
+  }
+
+  smoothMaskRegion(data, selectionMask, regionWidth, regionHeight, 2);
+
+  for (let i = 0; i < region.data.length; i++) {
+    region.data[i] = Math.round(clamp(data[i], 0, 255));
+  }
+
+  ctx.putImageData(region, regionX, regionY);
+};
+
 export const processImage = (
   file: File,
-  box: { x: number; y: number; width: number; height: number } | null,
-  options: { method: 'patch' | 'blur' | 'pixelate' | 'solid'; intensity: number; color?: string }
+  box: SelectionBox | null,
+  options: ProcessOptions
 ): Promise<Blob> => {
   return new Promise((resolve, reject) => {
     if (!box) {
@@ -66,6 +306,8 @@ export const processImage = (
           }
           ctx.putImageData(imageData, sx, sy);
         }
+      } else if (options.method === 'inpaint') {
+        inpaintSelection(ctx, { x, y, width, height });
       } else if (options.method === 'blur') {
         const maxBlur = Math.max(50, Math.min(width, height) / 2);
         const blurAmount = options.intensity * maxBlur;

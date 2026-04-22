@@ -13,6 +13,10 @@ export function DropzoneArea({ onFilesAdded }: DropzoneAreaProps) {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
+    multiple: true,
+    onDragEnter: undefined,
+    onDragOver: undefined,
+    onDragLeave: undefined,
     accept: {
       'image/*': ['.png', '.jpg', '.jpeg', '.webp']
     }
