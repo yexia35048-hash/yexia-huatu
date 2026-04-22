@@ -1,6 +1,6 @@
 {
-  "name": "Batch Watermark Remover",
-  "description": "A tool to batch process multiple images to hide or remove watermarks by drawing a bounding box and applying blur, pixelation, or solid color overlays.",
+  "name": "批量去水印工具",
+  "description": "支持批量上传图片、框选水印区域，并使用智能消除、模糊、马赛克或纯色覆盖进行处理。",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }

@@ -1,20 +1,47 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# 批量去水印工具
 
-# Run and deploy your AI Studio app
+一个基于 React 和 Vite 的纯前端图片处理工具，支持批量上传图片、框选水印区域，并对同一位置的水印执行统一处理。
 
-This contains everything you need to run your app locally.
+在线地址：
+`https://yexia35048-hash.github.io/yexia-huatu/`
 
-View your app in AI Studio: https://ai.studio/apps/43be6f1e-26d3-4f1c-a9d7-691b3bbf1373
+## 功能
 
-## Run Locally
+- 批量上传多张图片
+- 手动框选需要处理的水印区域
+- 支持 `智能消除`、`模糊`、`马赛克`、`纯色覆盖` 四种处理方式
+- 批量导出处理结果为 ZIP 压缩包
 
-**Prerequisites:**  Node.js
+## 本地运行
 
+前置条件：
+`Node.js 20+`
 
-1. Install dependencies:
+启动步骤：
+
+1. 安装依赖：
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+2. 启动开发环境：
    `npm run dev`
+3. 构建生产版本：
+   `npm run build`
+4. 本地预览构建结果：
+   `npm run preview`
+
+## 部署
+
+项目已配置 GitHub Pages 自动部署。
+
+- 推送到 `main` 分支后会自动触发 Actions
+- 构建产物来自 `dist/`
+- 站点部署地址为：
+  `https://yexia35048-hash.github.io/yexia-huatu/`
+
+## 使用说明
+
+1. 上传一张或多张图片
+2. 在编辑区拖拽框选水印区域
+3. 选择处理方式和强度
+4. 点击“`一键导出`”下载处理后的压缩包
+
+如果所有图片上的水印位置基本一致，批量处理效果最好。

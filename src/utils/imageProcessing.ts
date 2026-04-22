@@ -1,5 +1,3 @@
-import { GoogleGenAI } from "@google/genai";
-
 export const processImage = (
   file: File,
   box: { x: number; y: number; width: number; height: number } | null,
